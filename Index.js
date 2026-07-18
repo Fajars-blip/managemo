@@ -107,8 +107,16 @@ bot.on('text', async (ctx) => {
     ctx.reply(`✅ Tersimpan: ${keterangan} - Rp${nominal.toLocaleString('id-ID')}`);
 });
 
-bot.launch();
-console.log("Bot pengeluaran sedang berjalan...");
-
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+// Handler untuk Vercel Serverless Function
+module.exports = async (req, res) => {
+    try {
+        if (req.method === 'POST') {
+            await bot.handleUpdate(req.body, res);
+        } else {
+            res.status(200).send('Bot is running...');
+        }
+    } catch (err) {
+        console.error('Error handling update:', err);
+        res.status(500).send(err.message || 'Internal Server Error');
+    }
+}; 
