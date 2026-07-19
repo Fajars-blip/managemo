@@ -111,7 +111,8 @@ bot.on('text', async (ctx) => {
 module.exports = async (req, res) => {
     try {
         if (req.method === 'POST') {
-            await bot.handleUpdate(req.body, res);
+            await bot.handleUpdate(req.body);
+            res.status(200).send('OK');
         } else {
             res.status(200).send('Bot is running...');
         }
@@ -119,4 +120,4 @@ module.exports = async (req, res) => {
         console.error('Error handling update:', err);
         res.status(500).send(err.message || 'Internal Server Error');
     }
-}; 
+};
