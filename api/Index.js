@@ -7,24 +7,7 @@ const ExcelJS = require('exceljs');
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-bot.start(async (ctx) => {
-    const userId = ctx.from?.id ? ctx.from.id.toString() : null;
-    if (!userId) {
-        return ctx.reply('❌ Gagal mengidentifikasi user ID Anda.');
-    }
-
-    const { error } = await supabase
-        .from('pengeluaran')
-        .delete()
-        .eq('user_id', userId);
-
-    if (error) {
-        console.error("Error reset data:", error);
-        return ctx.reply('❌ Gagal mereset catatan pengeluaran Anda. Silakan coba lagi.');
-    }
-
-    return ctx.reply('🧹 Catatan pengeluaran Anda telah dikosongkan (mulai dari awal)!\n\nKirim pengeluaranmu dengan format: [Keterangan] [Nominal]\nContoh: Bensin 20000');
-});
+bot.start((ctx) => ctx.reply('Halo! Pencatatan pengeluaran Anda aktif.\nKirim pengeluaranmu dengan format: [Keterangan] [Nominal]\nContoh: Bensin 20000'));
 
 // Pindahkan bot.command ke atas bot.on('text') agar didahulukan
 bot.command('rekap', async (ctx) => {
