@@ -7,7 +7,24 @@ const ExcelJS = require('exceljs');
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-bot.start((ctx) => ctx.reply('Halo! Kirim pengeluaranmu dengan format: [Keterangan] [Nominal]\nContoh: Bensin 20000'));
+bot.start(async (ctx) => {
+    const userId = ctx.from?.id ? ctx.from.id.toString() : null;
+    if (!userId) {
+        return ctx.reply('❌ Gagal mengidentifikasi user ID Anda.');
+    }
+
+    const { error } = await supabase
+        .from('pengeluaran')
+        .delete()
+        .eq('user_id', userId);
+
+    if (error) {
+        console.error("Error reset data:", error);
+        return ctx.reply('❌ Gagal mereset catatan pengeluaran Anda. Silakan coba lagi.');
+    }
+
+    return ctx.reply('🧹 Catatan pengeluaran Anda telah dikosongkan (mulai dari awal)!\n\nKirim pengeluaranmu dengan format: [Keterangan] [Nominal]\nContoh: Bensin 20000');
+});
 
 // Pindahkan bot.command ke atas bot.on('text') agar didahulukan
 bot.command('rekap', async (ctx) => {
@@ -16,11 +33,43 @@ bot.command('rekap', async (ctx) => {
         return ctx.reply('❌ Gagal mengidentifikasi user ID Anda.');
     }
 
-    ctx.reply('⏳ Sedang menyusun rekap pengeluaran bulan ini...');
+    const monthsMap = {
+        januari: 0, jan: 0,
+        februari: 1, feb: 1,
+        maret: 2, mar: 2,
+        april: 3, apr: 3,
+        mei: 4,
+        juni: 5, jun: 5,
+        juli: 6, jul: 6,
+        agustus: 7, agt: 7, ags: 7,
+        september: 8, sep: 8,
+        oktober: 9, okt: 9,
+        november: 10, nov: 10,
+        desember: 11, des: 11
+    };
+
+    const payloadText = ctx.payload || (ctx.message?.text ? ctx.message.text.split(' ').slice(1).join(' ') : '');
+    const arg = payloadText.toLowerCase().trim();
 
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+    let targetMonth = now.getMonth();
+    let targetYear = now.getFullYear();
+    let namaBulanDisplay = now.toLocaleString('id-ID', { month: 'long', year: 'numeric' });
+
+    if (arg) {
+        if (monthsMap[arg] !== undefined) {
+            targetMonth = monthsMap[arg];
+            const tempDate = new Date(targetYear, targetMonth, 1);
+            namaBulanDisplay = tempDate.toLocaleString('id-ID', { month: 'long', year: 'numeric' });
+        } else {
+            return ctx.reply('❌ Bulan tidak dikenali.\nContoh: `/rekap` (bulan ini) atau `/rekap januari`');
+        }
+    }
+
+    ctx.reply(`⏳ Sedang menyusun rekap pengeluaran bulan ${namaBulanDisplay}...`);
+
+    const startOfMonth = new Date(targetYear, targetMonth, 1).toISOString();
+    const startOfNextMonth = new Date(targetYear, targetMonth + 1, 1).toISOString();
 
     const { data, error } = await supabase
         .from('pengeluaran')
@@ -36,7 +85,7 @@ bot.command('rekap', async (ctx) => {
     }
 
     if (!data || data.length === 0) {
-        return ctx.reply('📭 Belum ada pengeluaran yang dicatat bulan ini.');
+        return ctx.reply(`📭 Belum ada pengeluaran yang dicatat pada bulan ${namaBulanDisplay}.`);
     }
 
     const workbook = new ExcelJS.Workbook();
@@ -77,11 +126,10 @@ bot.command('rekap', async (ctx) => {
     totalRow.getCell('nominal').font = { bold: true };
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const namaBulan = now.toLocaleString('id-ID', { month: 'long', year: 'numeric' });
 
     await ctx.replyWithDocument(
-        { source: buffer, filename: `Rekap_${namaBulan.replace(' ', '_')}.xlsx` },
-        { caption: `📊 Total pengeluaranmu bulan ini: *Rp${total.toLocaleString('id-ID')}*`, parse_mode: 'Markdown' }
+        { source: buffer, filename: `Rekap_${namaBulanDisplay.replace(' ', '_')}.xlsx` },
+        { caption: `📊 Total pengeluaranmu bulan ${namaBulanDisplay}: *Rp${total.toLocaleString('id-ID')}*`, parse_mode: 'Markdown' }
     );
 });
 
