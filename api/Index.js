@@ -54,6 +54,7 @@ bot.command('rekap', async (ctx) => {
     const now = new Date();
     let targetMonth = now.getMonth();
     let targetYear = now.getFullYear();
+    let labelBulan = 'bulan ini';
     let namaBulanDisplay = now.toLocaleString('id-ID', { month: 'long', year: 'numeric' });
 
     if (arg) {
@@ -61,12 +62,13 @@ bot.command('rekap', async (ctx) => {
             targetMonth = monthsMap[arg];
             const tempDate = new Date(targetYear, targetMonth, 1);
             namaBulanDisplay = tempDate.toLocaleString('id-ID', { month: 'long', year: 'numeric' });
+            labelBulan = `bulan ${namaBulanDisplay}`;
         } else {
             return ctx.reply('❌ Bulan tidak dikenali.\nContoh: `/rekap` (bulan ini) atau `/rekap januari`');
         }
     }
 
-    ctx.reply(`⏳ Sedang menyusun rekap pengeluaran bulan ${namaBulanDisplay}...`);
+    ctx.reply(`⏳ Sedang menyusun rekap pengeluaran ${labelBulan}...`);
 
     const startOfMonth = new Date(targetYear, targetMonth, 1).toISOString();
     const startOfNextMonth = new Date(targetYear, targetMonth + 1, 1).toISOString();
@@ -85,7 +87,7 @@ bot.command('rekap', async (ctx) => {
     }
 
     if (!data || data.length === 0) {
-        return ctx.reply(`📭 Belum ada pengeluaran yang dicatat pada bulan ${namaBulanDisplay}.`);
+        return ctx.reply(`📭 Belum ada pengeluaran yang dicatat ${labelBulan === 'bulan ini' ? 'bulan ini' : 'pada ' + labelBulan}.`);
     }
 
     const workbook = new ExcelJS.Workbook();
@@ -129,7 +131,7 @@ bot.command('rekap', async (ctx) => {
 
     await ctx.replyWithDocument(
         { source: buffer, filename: `Rekap_${namaBulanDisplay.replace(' ', '_')}.xlsx` },
-        { caption: `📊 Total pengeluaranmu bulan ${namaBulanDisplay}: *Rp${total.toLocaleString('id-ID')}*`, parse_mode: 'Markdown' }
+        { caption: `📊 Total pengeluaranmu ${labelBulan}: *Rp${total.toLocaleString('id-ID')}*`, parse_mode: 'Markdown' }
     );
 });
 
