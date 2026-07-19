@@ -81,7 +81,69 @@ Jawab hanya dengan nama kategorinya saja (satu kata atau frasa):`;
 }
 
 
-bot.start((ctx) => ctx.reply('Halo! Pencatatan pengeluaran Anda aktif.\nKirim pengeluaranmu dengan format: [Keterangan] [Nominal]\nContoh: Bensin 20000\n\nPengeluaran akan dikategorikan otomatis oleh AI! 🤖'));
+
+// /start - tampilkan konfirmasi sebelum hapus data
+bot.start(async (ctx) => {
+    const userId = ctx.from?.id ? ctx.from.id.toString() : null;
+    if (!userId) return ctx.reply('❌ Gagal mengidentifikasi user ID Anda.');
+
+    return ctx.reply(
+        '👋 Halo! Selamat datang di ManageMo.\n\n⚠️ *Apakah Anda ingin menghapus semua catatan pengeluaran dan mulai dari awal?*',
+        {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: '✅ Ya, hapus semua & mulai baru', callback_data: 'confirm_reset' },
+                    { text: '❌ Tidak, lanjutkan saja', callback_data: 'cancel_reset' }
+                ]]
+            }
+        }
+    );
+});
+
+// /reset - alias yang sama dengan konfirmasi
+bot.command('reset', async (ctx) => {
+    const userId = ctx.from?.id ? ctx.from.id.toString() : null;
+    if (!userId) return ctx.reply('❌ Gagal mengidentifikasi user ID Anda.');
+
+    return ctx.reply(
+        '⚠️ *Yakin ingin menghapus SEMUA catatan pengeluaran Anda?*\nTindakan ini tidak bisa dibatalkan!',
+        {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: '✅ Ya, hapus semua', callback_data: 'confirm_reset' },
+                    { text: '❌ Batal', callback_data: 'cancel_reset' }
+                ]]
+            }
+        }
+    );
+});
+
+// Handler tombol konfirmasi reset
+bot.action('confirm_reset', async (ctx) => {
+    const userId = ctx.from?.id ? ctx.from.id.toString() : null;
+    await ctx.answerCbQuery();
+    if (!userId) return ctx.reply('❌ Gagal mengidentifikasi user ID Anda.');
+
+    const { error } = await supabase
+        .from('pengeluaran')
+        .delete()
+        .eq('user_id', userId);
+
+    if (error) {
+        console.error('Error reset:', error);
+        return ctx.editMessageText('❌ Gagal menghapus data. Silakan coba lagi.');
+    }
+
+    return ctx.editMessageText('🧹 Semua catatan pengeluaran telah dihapus!\n\nSilakan mulai mencatat pengeluaran baru:\nFormat: *[Keterangan] [Nominal]*\nContoh: Makan siang 25000\n\nAI akan mengkategorikan otomatis 🤖', { parse_mode: 'Markdown' });
+});
+
+bot.action('cancel_reset', async (ctx) => {
+    await ctx.answerCbQuery();
+    return ctx.editMessageText('✅ Data Anda aman! Lanjutkan pencatatan pengeluaran.\n\nFormat: *[Keterangan] [Nominal]*\nContoh: Bensin 50000', { parse_mode: 'Markdown' });
+});
+
 
 bot.command('rekap', async (ctx) => {
     const userId = ctx.from?.id ? ctx.from.id.toString() : null;
