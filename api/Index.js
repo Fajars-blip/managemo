@@ -11,6 +11,11 @@ bot.start((ctx) => ctx.reply('Halo! Kirim pengeluaranmu dengan format: [Keterang
 
 // Pindahkan bot.command ke atas bot.on('text') agar didahulukan
 bot.command('rekap', async (ctx) => {
+    const userId = ctx.from?.id ? ctx.from.id.toString() : null;
+    if (!userId) {
+        return ctx.reply('❌ Gagal mengidentifikasi user ID Anda.');
+    }
+
     ctx.reply('⏳ Sedang menyusun rekap pengeluaran bulan ini...');
 
     const now = new Date();
@@ -20,6 +25,7 @@ bot.command('rekap', async (ctx) => {
     const { data, error } = await supabase
         .from('pengeluaran')
         .select('*')
+        .eq('user_id', userId)
         .gte('created_at', startOfMonth)
         .lt('created_at', startOfNextMonth)
         .order('created_at', { ascending: true });
@@ -94,10 +100,15 @@ bot.on('text', async (ctx) => {
 
     const keterangan = match[1].trim();
     const nominal = parseInt(match[2], 10);
+    const userId = ctx.from?.id ? ctx.from.id.toString() : null;
+
+    if (!userId) {
+        return ctx.reply("❌ Gagal mengidentifikasi user ID.");
+    }
 
     const { error } = await supabase
         .from('pengeluaran')
-        .insert([{ keterangan: keterangan, nominal: nominal }]);
+        .insert([{ keterangan: keterangan, nominal: nominal, user_id: userId }]);
 
     if (error) {
         console.error("Error Database:", error);
