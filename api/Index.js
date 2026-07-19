@@ -82,24 +82,21 @@ Jawab hanya dengan nama kategorinya saja (satu kata atau frasa):`;
 
 
 
-// /start - tampilkan konfirmasi sebelum hapus data
-bot.start(async (ctx) => {
-    const userId = ctx.from?.id ? ctx.from.id.toString() : null;
-    if (!userId) return ctx.reply('❌ Gagal mengidentifikasi user ID Anda.');
+// /start - sambutan & panduan penggunaan (tidak menghapus data)
+bot.start((ctx) => ctx.reply(
+    '👋 Halo! Selamat datang di *ManageMo*.\n\n' +
+    '📝 *Cara mencatat pengeluaran:*\n' +
+    'Kirim pesan dengan format:\n' +
+    '`[Keterangan] [Nominal]`\n' +
+    'Contoh: `Makan siang 25000`\n\n' +
+    '🤖 AI akan otomatis mengkategorikan pengeluaranmu!\n\n' +
+    '📊 *Perintah yang tersedia:*\n' +
+    '• `/rekap` — rekap bulan ini\n' +
+    '• `/rekap januari` — rekap bulan tertentu\n' +
+    '• `/reset` — hapus semua data & mulai dari awal',
+    { parse_mode: 'Markdown' }
+));
 
-    return ctx.reply(
-        '👋 Halo! Selamat datang di ManageMo.\n\n⚠️ *Apakah Anda ingin menghapus semua catatan pengeluaran dan mulai dari awal?*',
-        {
-            parse_mode: 'Markdown',
-            reply_markup: {
-                inline_keyboard: [[
-                    { text: '✅ Ya, hapus semua & mulai baru', callback_data: 'confirm_reset' },
-                    { text: '❌ Tidak, lanjutkan saja', callback_data: 'cancel_reset' }
-                ]]
-            }
-        }
-    );
-});
 
 // /reset - alias yang sama dengan konfirmasi
 bot.command('reset', async (ctx) => {
