@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const { createClient } = require('@supabase/supabase-js');
 const ExcelJS = require('exceljs');
@@ -22,18 +22,64 @@ const KATEGORI_LIST = [
     'Lainnya'
 ];
 
-// Fungsi klasifikasi kategori menggunakan Gemini AI
+
+// Kata kunci fallback jika AI tidak tersedia
+const KEYWORD_MAP = {
+    'Konsumsi':          ['makan','minum','kopi','teh','donat','nasi','snack','jajan','bakso','mie','ayam','soto','warteg','warung','resto','restoran','cafe','kafe','pizza','burger','es','juice','minuman','makanan','sarapan','siang','malam','cemilan','roti','kue'],
+    'Transportasi':      ['bensin','bbm','parkir','tol','ojek','gojek','grab','bus','angkot','kereta','taksi','taxi','uber','motor','mobil','bensi','bahan bakar','transportasi'],
+    'Kebutuhan Rumah':   ['listrik','air','pam','sabun','deterjen','rinso','sunlight','sembako','beras','minyak','gas','lpg','shampoo','pasta gigi','sikat','pel','sapu','tissue','toilet','kebersihan','belanja','supermarket','indomaret','alfamart'],
+    'Kesehatan':         ['obat','apotek','dokter','vitamin','masker','rs','rumah sakit','klinik','puskesmas','kesehatan','bpjs','suplemen'],
+    'Pakaian':           ['baju','celana','sepatu','kaos','kemeja','rok','jaket','sandal','tas','ikat pinggang','pakaian','baju'],
+    'Elektronik & Pulsa':['pulsa','kuota','wifi','internet','charger','kabel','hp','handphone','laptop','earphone','baterai','cas','token'],
+    'Hiburan':           ['game','streaming','netflix','spotify','bioskop','film','konser','tiket','wisata','liburan','jalan','hiburan','nongkrong'],
+    'Pendidikan':        ['buku','kursus','alat tulis','pensil','pulpen','fotokopi','print','les','sekolah','kuliah','pendidikan','study']
+};
+
+// Fungsi klasifikasi kategori menggunakan Gemini AI + keyword fallback
 async function getKategori(keterangan) {
-    try {
-        const prompt = `Kamu adalah asisten keuangan. Klasifikasikan pengeluaran berikut ke salah satu kategori di bawah. Hanya jawab dengan SATU nama kategori persis seperti yang tertulis, tanpa penjelasan apapun.\n\nKategori: ${KATEGORI_LIST.join(', ')}\n\nPengeluaran: "${keterangan}"\n\nKategori:`;
-        const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-        const result = response.text.trim();
-        return KATEGORI_LIST.includes(result) ? result : 'Lainnya';
-    } catch (err) {
-        console.error('Gemini error:', err);
-        return 'Lainnya';
+    // Coba dengan Gemini AI terlebih dahulu
+    if (process.env.GEMINI_API_KEY) {
+        try {
+            const prompt = `Kamu adalah asisten keuangan Indonesia. Tugasmu mengklasifikasikan 1 item pengeluaran ke dalam kategori yang PALING COCOK.
+
+Kategori yang tersedia (pilih SATU, tulis PERSIS seperti ini):
+- Konsumsi (makanan, minuman, kopi, donat, bakso, dll)
+- Transportasi (bensin, parkir, ojek, grab, tol, dll)
+- Kebutuhan Rumah (listrik, air, sabun, beras, gas, dll)
+- Kesehatan (obat, dokter, vitamin, apotek, dll)
+- Pakaian (baju, celana, sepatu, dll)
+- Elektronik & Pulsa (pulsa, kuota, charger, hp, dll)
+- Hiburan (netflix, game, bioskop, dll)
+- Pendidikan (buku, kursus, alat tulis, dll)
+- Lainnya (jika tidak cocok dengan kategori di atas)
+
+Item pengeluaran: "${keterangan}"
+
+Jawab hanya dengan nama kategorinya saja (satu kata atau frasa):`;
+
+            const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+            const result = response.text.trim().replace(/[*_`"']/g, '').trim();
+            console.log(`Gemini response for "${keterangan}": "${result}"`);
+
+            // Cari kecocokan persis atau sebagian (case-insensitive)
+            const exactMatch = KATEGORI_LIST.find(k => k.toLowerCase() === result.toLowerCase());
+            if (exactMatch) return exactMatch;
+
+            const partialMatch = KATEGORI_LIST.find(k => result.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(result.toLowerCase()));
+            if (partialMatch) return partialMatch;
+        } catch (err) {
+            console.error('Gemini error:', err.message);
+        }
     }
+
+    // Fallback: pencocokan kata kunci lokal
+    const lower = keterangan.toLowerCase();
+    for (const [kategori, keywords] of Object.entries(KEYWORD_MAP)) {
+        if (keywords.some(kw => lower.includes(kw))) return kategori;
+    }
+    return 'Lainnya';
 }
+
 
 bot.start((ctx) => ctx.reply('Halo! Pencatatan pengeluaran Anda aktif.\nKirim pengeluaranmu dengan format: [Keterangan] [Nominal]\nContoh: Bensin 20000\n\nPengeluaran akan dikategorikan otomatis oleh AI! 🤖'));
 
