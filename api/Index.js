@@ -1,42 +1,52 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const { createClient } = require('@supabase/supabase-js');
 const ExcelJS = require('exceljs');
+const { GoogleGenAI } = require('@google/genai');
 
-// Inisialisasi Bot & Supabase
+// Inisialisasi Bot, Supabase & Gemini AI
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-bot.start((ctx) => ctx.reply('Halo! Pencatatan pengeluaran Anda aktif.\nKirim pengeluaranmu dengan format: [Keterangan] [Nominal]\nContoh: Bensin 20000'));
+// Daftar kategori valid
+const KATEGORI_LIST = [
+    'Konsumsi',
+    'Transportasi',
+    'Kebutuhan Rumah',
+    'Kesehatan',
+    'Pakaian',
+    'Elektronik & Pulsa',
+    'Hiburan',
+    'Pendidikan',
+    'Lainnya'
+];
 
-// Pindahkan bot.command ke atas bot.on('text') agar didahulukan
+// Fungsi klasifikasi kategori menggunakan Gemini AI
+async function getKategori(keterangan) {
+    try {
+        const prompt = `Kamu adalah asisten keuangan. Klasifikasikan pengeluaran berikut ke salah satu kategori di bawah. Hanya jawab dengan SATU nama kategori persis seperti yang tertulis, tanpa penjelasan apapun.\n\nKategori: ${KATEGORI_LIST.join(', ')}\n\nPengeluaran: "${keterangan}"\n\nKategori:`;
+        const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+        const result = response.text.trim();
+        return KATEGORI_LIST.includes(result) ? result : 'Lainnya';
+    } catch (err) {
+        console.error('Gemini error:', err);
+        return 'Lainnya';
+    }
+}
+
+bot.start((ctx) => ctx.reply('Halo! Pencatatan pengeluaran Anda aktif.\nKirim pengeluaranmu dengan format: [Keterangan] [Nominal]\nContoh: Bensin 20000\n\nPengeluaran akan dikategorikan otomatis oleh AI! 🤖'));
+
 bot.command('rekap', async (ctx) => {
     const userId = ctx.from?.id ? ctx.from.id.toString() : null;
-    if (!userId) {
-        return ctx.reply('❌ Gagal mengidentifikasi user ID Anda.');
-    }
+    if (!userId) return ctx.reply('❌ Gagal mengidentifikasi user ID Anda.');
 
-    const monthsMap = {
-        januari: 0, jan: 0,
-        februari: 1, feb: 1,
-        maret: 2, mar: 2,
-        april: 3, apr: 3,
-        mei: 4,
-        juni: 5, jun: 5,
-        juli: 6, jul: 6,
-        agustus: 7, agt: 7, ags: 7,
-        september: 8, sep: 8,
-        oktober: 9, okt: 9,
-        november: 10, nov: 10,
-        desember: 11, des: 11
-    };
-
+    const monthsMap = { januari:0,jan:0,februari:1,feb:1,maret:2,mar:2,april:3,apr:3,mei:4,juni:5,jun:5,juli:6,jul:6,agustus:7,agt:7,ags:7,september:8,sep:8,oktober:9,okt:9,november:10,nov:10,desember:11,des:11 };
     const payloadText = ctx.payload || (ctx.message?.text ? ctx.message.text.split(' ').slice(1).join(' ') : '');
     const arg = payloadText.toLowerCase().trim();
 
     const now = new Date();
-    let targetMonth = now.getMonth();
-    let targetYear = now.getFullYear();
+    let targetMonth = now.getMonth(), targetYear = now.getFullYear();
     let labelBulan = 'bulan ini';
     let namaBulanDisplay = now.toLocaleString('id-ID', { month: 'long', year: 'numeric' });
 
@@ -47,7 +57,7 @@ bot.command('rekap', async (ctx) => {
             namaBulanDisplay = tempDate.toLocaleString('id-ID', { month: 'long', year: 'numeric' });
             labelBulan = `bulan ${namaBulanDisplay}`;
         } else {
-            return ctx.reply('❌ Bulan tidak dikenali.\nContoh: `/rekap` (bulan ini) atau `/rekap januari`');
+            return ctx.reply('❌ Bulan tidak dikenali.\nContoh: /rekap atau /rekap januari');
         }
     }
 
@@ -56,110 +66,105 @@ bot.command('rekap', async (ctx) => {
     const startOfMonth = new Date(targetYear, targetMonth, 1).toISOString();
     const startOfNextMonth = new Date(targetYear, targetMonth + 1, 1).toISOString();
 
-    const { data, error } = await supabase
-        .from('pengeluaran')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('created_at', startOfMonth)
-        .lt('created_at', startOfNextMonth)
-        .order('created_at', { ascending: true });
+    const { data, error } = await supabase.from('pengeluaran').select('*').eq('user_id', userId).gte('created_at', startOfMonth).lt('created_at', startOfNextMonth).order('created_at', { ascending: true });
 
-    if (error) {
-        console.error("Error tarik data:", error);
-        return ctx.reply('❌ Gagal menarik data dari database.');
-    }
-
-    if (!data || data.length === 0) {
-        return ctx.reply(`📭 Belum ada pengeluaran yang dicatat ${labelBulan === 'bulan ini' ? 'bulan ini' : 'pada ' + labelBulan}.`);
-    }
+    if (error) { console.error("Error tarik data:", error); return ctx.reply('❌ Gagal menarik data dari database.'); }
+    if (!data || data.length === 0) return ctx.reply(`📭 Belum ada pengeluaran yang dicatat ${labelBulan === 'bulan ini' ? 'bulan ini' : 'pada ' + labelBulan}.`);
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Rekap Pengeluaran');
 
-    // Define columns
-    worksheet.columns = [
-        { header: 'Tanggal', key: 'tanggal', width: 15 },
+    // Sheet 1: Detail Transaksi
+    const ws1 = workbook.addWorksheet('Detail Transaksi');
+    ws1.columns = [
+        { header: 'Tanggal', key: 'tanggal', width: 14 },
         { header: 'Keterangan', key: 'keterangan', width: 30 },
-        { header: 'Nominal', key: 'nominal', width: 15, style: { numFmt: '#,##0' } }
+        { header: 'Kategori', key: 'kategori', width: 22 },
+        { header: 'Nominal (Rp)', key: 'nominal', width: 16, style: { numFmt: '#,##0' } }
     ];
-
-    // Style header row
-    worksheet.getRow(1).font = { bold: true };
+    const h1 = ws1.getRow(1);
+    h1.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    h1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E7D32' } };
+    h1.height = 20;
 
     let total = 0;
+    const kategoriTotals = {};
 
     data.forEach(row => {
-        const dateObj = new Date(row.created_at);
-        const dateStr = `${dateObj.getDate()}/${dateObj.getMonth() + 1}/${dateObj.getFullYear()}`;
-        worksheet.addRow({
-            tanggal: dateStr,
-            keterangan: row.keterangan,
-            nominal: row.nominal
-        });
+        const d = new Date(row.created_at);
+        const kat = row.kategori || 'Lainnya';
+        ws1.addRow({ tanggal: `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}`, keterangan: row.keterangan, kategori: kat, nominal: row.nominal });
         total += row.nominal;
+        kategoriTotals[kat] = (kategoriTotals[kat] || 0) + row.nominal;
     });
 
-    // Add empty row
-    worksheet.addRow([]);
-
-    // Add total row
-    const totalRow = worksheet.addRow({
-        keterangan: 'Total',
-        nominal: total
+    ws1.eachRow((row, rn) => {
+        if (rn > 1) row.eachCell(c => { c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: rn%2===0 ? 'FFF1F8E9':'FFFFFFFF' }}; });
     });
-    totalRow.getCell('keterangan').font = { bold: true };
-    totalRow.getCell('nominal').font = { bold: true };
+
+    ws1.addRow([]);
+    const tr1 = ws1.addRow({ keterangan: 'TOTAL', nominal: total });
+    tr1.font = { bold: true };
+    tr1.eachCell(c => { c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFF9C4' }}; });
+
+    // Sheet 2: Ringkasan Kategori
+    const ws2 = workbook.addWorksheet('Ringkasan Kategori');
+    ws2.columns = [
+        { header: 'Kategori', key: 'kategori', width: 25 },
+        { header: 'Total (Rp)', key: 'total', width: 18, style: { numFmt: '#,##0' } },
+        { header: 'Persentase', key: 'persen', width: 14, style: { numFmt: '0.0%' } }
+    ];
+    const h2 = ws2.getRow(1);
+    h2.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    h2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1565C0' } };
+    h2.height = 20;
+
+    const sorted = Object.entries(kategoriTotals).sort((a,b) => b[1]-a[1]);
+    const rowColors = ['FFE3F2FD','FFF3E0','FFE8F5E9','FFFCE4EC','FFF3E5F5','FFFFE0B2','FFE0F7FA','FFF5F5F5','FFEEEEEE'];
+    sorted.forEach(([kat, jumlah], idx) => {
+        const row = ws2.addRow({ kategori: kat, total: jumlah, persen: jumlah/total });
+        row.eachCell(c => { c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: rowColors[idx%rowColors.length] }}; });
+    });
+
+    ws2.addRow([]);
+    const tr2 = ws2.addRow({ kategori: 'TOTAL', total: total, persen: 1 });
+    tr2.font = { bold: true };
+    tr2.eachCell(c => { c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFF9C4' }}; });
 
     const buffer = await workbook.xlsx.writeBuffer();
+    const top3 = sorted.slice(0,3).map(([k,v]) => `  • ${k}: Rp${v.toLocaleString('id-ID')}`).join('\n');
 
     await ctx.replyWithDocument(
-        { source: buffer, filename: `Rekap_${namaBulanDisplay.replace(' ', '_')}.xlsx` },
-        { caption: `📊 Total pengeluaranmu ${labelBulan}: *Rp${total.toLocaleString('id-ID')}*`, parse_mode: 'Markdown' }
+        { source: buffer, filename: `Rekap_${namaBulanDisplay.replace(' ','_')}.xlsx` },
+        { caption: `📊 Rekap ${labelBulan}\n💰 Total: *Rp${total.toLocaleString('id-ID')}*\n\n🏆 *Pengeluaran terbesar:*\n${top3}`, parse_mode: 'Markdown' }
     );
 });
 
-// Handler text diletakkan di bawah
+// Handler text
 bot.on('text', async (ctx) => {
     const text = ctx.message.text;
-
-    // Abaikan jika pesan dimulai dengan '/' (ini perintah command)
     if (text.startsWith('/')) return;
 
     const match = text.match(/(.+?)\s+(\d+)$/);
-
-    if (!match) {
-        return ctx.reply("❌ Format kurang tepat.\nGunakan format: Keterangan [spasi] Angka\nContoh: Makan siang 25000");
-    }
+    if (!match) return ctx.reply("❌ Format kurang tepat.\nGunakan format: Keterangan [spasi] Angka\nContoh: Makan siang 25000");
 
     const keterangan = match[1].trim();
     const nominal = parseInt(match[2], 10);
     const userId = ctx.from?.id ? ctx.from.id.toString() : null;
+    if (!userId) return ctx.reply("❌ Gagal mengidentifikasi user ID.");
 
-    if (!userId) {
-        return ctx.reply("❌ Gagal mengidentifikasi user ID.");
-    }
+    const kategori = await getKategori(keterangan);
 
-    const { error } = await supabase
-        .from('pengeluaran')
-        .insert([{ keterangan: keterangan, nominal: nominal, user_id: userId }]);
+    const { error } = await supabase.from('pengeluaran').insert([{ keterangan, nominal, user_id: userId, kategori }]);
+    if (error) { console.error("Error Database:", error); return ctx.reply("❌ Gagal menyimpan data ke database."); }
 
-    if (error) {
-        console.error("Error Database:", error);
-        return ctx.reply("❌ Gagal menyimpan data ke database.");
-    }
-
-    ctx.reply(`✅ Tersimpan: ${keterangan} - Rp${nominal.toLocaleString('id-ID')}`);
+    ctx.reply(`✅ Tersimpan!\n📝 ${keterangan} — Rp${nominal.toLocaleString('id-ID')}\n🏷️ Kategori: ${kategori}`);
 });
 
 // Handler untuk Vercel Serverless Function
 module.exports = async (req, res) => {
     try {
-        if (req.method === 'POST') {
-            await bot.handleUpdate(req.body);
-            res.status(200).send('OK');
-        } else {
-            res.status(200).send('Bot is running...');
-        }
+        if (req.method === 'POST') { await bot.handleUpdate(req.body); res.status(200).send('OK'); }
+        else res.status(200).send('Bot is running...');
     } catch (err) {
         console.error('Error handling update:', err);
         res.status(500).send(err.message || 'Internal Server Error');
